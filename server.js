@@ -7,7 +7,23 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
 
-app.use(cors());
+const corsOptions = {
+  origin: true,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  next();
+});
+
 app.use(express.json({ limit: "2mb" }));
 
 function normalizeUrl(input) {
@@ -28,6 +44,14 @@ function normalizeUrl(input) {
 
   return url.toString();
 }
+
+app.get("/", (_req, res) => {
+  res.json({
+    success: true,
+    service: "site-template-crawler-api",
+    message: "crawler api is running"
+  });
+});
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -108,6 +132,7 @@ app.post("/crawl", async (req, res) => {
       try {
         await browser.close();
       } catch {
+        // ignore
       }
     }
   }
