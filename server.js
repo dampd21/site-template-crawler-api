@@ -6,6 +6,7 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
+const PUPPETEER_CACHE_DIR = process.env.PUPPETEER_CACHE_DIR || ".cache/puppeteer";
 
 const corsOptions = {
   origin: true,
@@ -68,7 +69,12 @@ app.post("/crawl", async (req, res) => {
   try {
     const sourceUrl = normalizeUrl(req.body?.url);
 
+    const executablePath = puppeteer.executablePath({
+      cacheDir: PUPPETEER_CACHE_DIR
+    });
+
     browser = await puppeteer.launch({
+      executablePath,
       headless: true,
       args: [
         "--no-sandbox",
@@ -147,4 +153,5 @@ app.use((req, res) => {
 
 app.listen(PORT, HOST, () => {
   console.log(`crawler api listening on http://${HOST}:${PORT}`);
+  console.log(`puppeteer cache dir: ${PUPPETEER_CACHE_DIR}`);
 });
