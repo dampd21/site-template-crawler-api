@@ -5,12 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "start": "node server.js",
-    "postinstall": "PUPPETEER_CACHE_DIR=.cache/puppeteer npx puppeteer browsers install chrome"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "puppeteer": "^24.5.0"
+    "puppeteer-core": "^24.5.0"
   }
 }
