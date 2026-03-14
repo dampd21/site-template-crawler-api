@@ -3,7 +3,6 @@ import cors from "cors";
 import puppeteer from "puppeteer-core";
 
 const app = express();
-
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
 const CHROME_EXECUTABLE_PATH =
@@ -18,14 +17,12 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   next();
 });
-
 app.use(express.json({ limit: "2mb" }));
 
 function normalizeUrl(input) {
@@ -39,12 +36,16 @@ function normalizeUrl(input) {
     : `https://${trimmed}`;
 
   const url = new URL(withProtocol);
-
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("http 또는 https 주소만 분석할 수 있습니다.");
   }
 
   return url.toString();
+}
+
+function isRetryableNavigationError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|net::err_|navigation/i.test(message);
 }
 
 app.get("/", (_req, res) => {
@@ -89,20 +90,60 @@ app.post("/crawl", async (req, res) => {
 
     const page = await browser.newPage();
 
+    page.setDefaultNavigationTimeout(45000);
+    page.setDefaultTimeout(45000);
+
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     );
 
-    await page.goto(sourceUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 30000
+    await page.setRequestInterception(true);
+    page.on("request", (request) => {
+      const resourceType = request.resourceType();
+      const url = request.url().toLowerCase();
+
+      if (
+        resourceType === "media" ||
+        resourceType === "font" ||
+        url.includes("doubleclick") ||
+        url.includes("googlesyndication") ||
+        url.includes("adservice") ||
+        url.includes("adsystem")
+      ) {
+        request.abort();
+        return;
+      }
+
+      request.continue();
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    let navigationError = null;
+
+    try {
+      await page.goto(sourceUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 45000
+      });
+    } catch (error) {
+      navigationError = error;
+      console.warn("primary navigation failed:", error);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1800));
 
     const html = await page.content();
     const title = await page.title();
     const resolvedUrl = page.url();
+
+    if ((!html || html.trim().length < 50) && navigationError) {
+      throw new Error(
+        isRetryableNavigationError(navigationError)
+          ? "사이트 응답이 느려 수집 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+          : navigationError instanceof Error
+          ? navigationError.message
+          : String(navigationError)
+      );
+    }
 
     const screenshotBase64 = await page.screenshot({
       encoding: "base64",
@@ -122,13 +163,17 @@ app.post("/crawl", async (req, res) => {
       size: {
         html: `${(html.length / 1024).toFixed(2)} KB`,
         screenshot: `${(screenshotBase64.length / 1024).toFixed(2)} KB`
-      }
+      },
+      warnings: navigationError ? ["navigation timeout fallback applied"] : []
     });
   } catch (error) {
     console.error("crawl error:", error);
     return res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : String(error)
+      error:
+        error instanceof Error
+          ? error.message
+          : String(error)
     });
   } finally {
     if (browser) {
